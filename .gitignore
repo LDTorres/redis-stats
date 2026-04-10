@@ -24,9 +24,24 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
-.env
-
 # Editor/IDE
 # .idea/
 # .vscode/
+.env
+.env.*
+!.env.example
+
+.redis-stats-state.json
+redis-stats-state*.json
+
+dist/
+
+main
+redis-stats
+*.exe
+*.test
+*.out
+
+.DS_Store
+.idea/
+.vscode/

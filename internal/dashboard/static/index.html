@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redis Stats Dashboard</title>
+    <style>
+      :root {
+        --bg: #f5efe6;
+        --panel: rgba(255, 255, 255, 0.84);
+        --panel-strong: rgba(255, 255, 255, 0.96);
+        --line: rgba(29, 39, 55, 0.10);
+        --text: #162131;
+        --muted: #64748b;
+        --accent: #c8643b;
+        --accent-soft: rgba(200, 100, 59, 0.12);
+        --ok: #1f7a4d;
+        --warn: #ad6800;
+        --danger: #b42318;
+        --shadow: 0 16px 42px rgba(22, 33, 49, 0.10);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(200, 100, 59, 0.16), transparent 24rem),
+          radial-gradient(circle at top right, rgba(31, 122, 77, 0.10), transparent 26rem),
+          linear-gradient(180deg, #faf7f2, #f1ebe2 48%, #ece3d8);
+      }
+
+      .shell {
+        width: min(1380px, calc(100vw - 28px));
+        margin: 20px auto 36px;
+      }
+
+      .hero,
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.76));
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+      }
+
+      .hero { padding: 28px; }
+
+      .hero-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2.4rem, 4.6vw, 4.3rem);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .subtitle {
+        margin: 10px 0 0;
+        max-width: 52rem;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-radius: 999px;
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: var(--warn);
+        box-shadow: 0 0 0 8px rgba(173, 104, 0, 0.12);
+      }
+
+      .status.ok .dot { background: var(--ok); box-shadow: 0 0 0 8px rgba(31, 122, 77, 0.10); }
+      .status.error .dot { background: var(--danger); box-shadow: 0 0 0 8px rgba(180, 35, 24, 0.12); }
+
+      .topline,
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .topline { margin-top: 18px; }
+      .grid { margin-top: 18px; }
+
+      .hero-meta {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .mini {
+        grid-column: span 4;
+        padding: 16px 18px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .card {
+        grid-column: span 3;
+        padding: 18px;
+        min-height: 140px;
+      }
+
+      .card.span-4 { grid-column: span 4; }
+      .card.span-6 { grid-column: span 6; }
+      .card.span-8 { grid-column: span 8; }
+      .card.full { grid-column: 1 / -1; }
+
+      .mini-label,
+      .card-label {
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .label-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .help-button {
+        width: 22px;
+        height: 22px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(22, 33, 49, 0.04);
+        color: var(--muted);
+        font-size: 0.8rem;
+        font-weight: 800;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .help-button:hover {
+        color: var(--text);
+        background: rgba(22, 33, 49, 0.08);
+      }
+
+      .mini-value,
+      .metric-value {
+        margin-top: 12px;
+        font-size: clamp(1.9rem, 4vw, 3rem);
+        font-weight: 800;
+        letter-spacing: -0.05em;
+      }
+
+      .mini-sub,
+      .metric-sub {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.98rem;
+      }
+
+      .trend-pill,
+      .scope-pill,
+      .severity-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 11px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .trend-pill,
+      .scope-pill {
+        margin-top: 12px;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .scope-pill {
+        background: rgba(22, 33, 49, 0.06);
+        color: var(--muted);
+      }
+
+      .alerts {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .section-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+
+      .alert {
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.68);
+      }
+
+      .alert-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .alert-title { font-weight: 700; }
+
+      .alert-meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .severity-pill.high { background: rgba(180, 35, 24, 0.12); color: var(--danger); }
+      .severity-pill.medium { background: rgba(173, 104, 0, 0.12); color: var(--warn); }
+      .severity-pill.low { background: rgba(22, 33, 49, 0.08); color: var(--muted); }
+
+      .alert-category {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      .chart-grid,
+      .kv-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .chart {
+        padding: 14px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.60);
+      }
+
+      .chart-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .chart-title { font-weight: 700; }
+
+      .chart svg {
+        width: 100%;
+        height: 130px;
+        display: block;
+      }
+
+      .chart-footer {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .spark-bg {
+        fill: none;
+        stroke: rgba(100, 116, 139, 0.14);
+        stroke-width: 1;
+      }
+
+      .spark-line {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .spark-area { opacity: 0.12; }
+
+      .kv {
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.60);
+      }
+
+      .kv .value {
+        margin-top: 8px;
+        font-size: 1.05rem;
+        font-weight: 700;
+      }
+
+      .scan-button {
+        border: 1px solid rgba(200, 100, 59, 0.34);
+        background: linear-gradient(180deg, rgba(200, 100, 59, 0.18), rgba(200, 100, 59, 0.10));
+        color: #a14d28;
+        border-radius: 999px;
+        padding: 11px 16px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 10px 24px rgba(200, 100, 59, 0.14);
+      }
+
+      .scan-button:hover {
+        background: linear-gradient(180deg, rgba(200, 100, 59, 0.26), rgba(200, 100, 59, 0.16));
+      }
+
+      .scan-button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      .ttl-label-pill {
+        margin-top: 10px;
+        background: rgba(22, 33, 49, 0.08);
+        color: var(--muted);
+      }
+
+      .ttl-label-pill.short-lived {
+        background: rgba(31, 122, 77, 0.12);
+        color: var(--ok);
+      }
+
+      .ttl-label-pill.mixed {
+        background: rgba(173, 104, 0, 0.12);
+        color: var(--warn);
+      }
+
+      .ttl-label-pill.persistent {
+        background: rgba(22, 33, 49, 0.08);
+        color: var(--muted);
+      }
+
+      .ttl-label-pill.expiring {
+        background: rgba(37, 99, 235, 0.10);
+        color: #2563eb;
+      }
+
+      .group-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .group-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.60);
+      }
+
+      .group-item strong {
+        font-size: 1rem;
+      }
+
+      .group-item .meta {
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .group-examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .group-example {
+        max-width: 100%;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(22, 33, 49, 0.04);
+        color: var(--muted);
+        font-size: 0.82rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .empty-state {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px dashed var(--line);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.45);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      th, td {
+        padding: 12px 0;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        background: rgba(22, 33, 49, 0.36);
+      }
+
+      .modal-backdrop.hidden {
+        display: none;
+      }
+
+      .modal {
+        width: min(560px, calc(100vw - 32px));
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 18px 42px rgba(22, 33, 49, 0.18);
+        color: var(--text);
+        font-size: 0.92rem;
+        line-height: 1.45;
+      }
+
+      .modal-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .modal-title {
+        margin-bottom: 6px;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      .modal-close {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(22, 33, 49, 0.04);
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+
+      .modal-close:hover {
+        background: rgba(22, 33, 49, 0.08);
+        color: var(--text);
+      }
+
+      @media (max-width: 1120px) {
+        .mini { grid-column: span 6; }
+        .card,
+        .card.span-4,
+        .card.span-6,
+        .card.span-8 { grid-column: span 6; }
+      }
+
+      @media (max-width: 760px) {
+        .shell { width: min(100vw - 16px, 100%); margin-top: 8px; }
+        .hero { padding: 20px; }
+        .mini,
+        .card,
+        .card.span-4,
+        .card.span-6,
+        .card.span-8,
+        .card.full { grid-column: 1 / -1; }
+        .chart-grid,
+        .kv-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="hero-top">
+          <div>
+            <h1>Redis Stats</h1>
+            <p class="subtitle">Live operational dashboard for memory growth, fragmentation, connections, throughput, and cache efficiency.</p>
+          </div>
+          <div id="status" class="status">
+            <span class="dot"></span>
+            <span id="status-text">Connecting...</span>
+          </div>
+        </div>
+
+        <div class="topline">
+          <div class="mini">
+            <div class="label-row">
+              <div class="mini-label">Last Sample</div>
+              <button class="help-button" data-help-title="Last Sample" data-help="Timestamp of the latest sample received from Redis. If it stops advancing, the dashboard is no longer refreshing or lost connectivity.">?</button>
+            </div>
+            <div class="mini-value" id="captured-at">-</div>
+            <div class="mini-sub" id="ping-latency">Ping -</div>
+          </div>
+          <div class="mini">
+            <div class="label-row">
+              <div class="mini-label">Memory Trend</div>
+              <button class="help-button" data-help-title="Memory Trend" data-help="Summarizes the recent direction of used_memory. Good: flat or down under stable load. Bad: growing over many samples when the dataset should not be expanding.">?</button>
+            </div>
+            <div class="mini-value" id="trend-direction">-</div>
+            <div class="mini-sub" id="trend-notes">Waiting for enough samples</div>
+          </div>
+          <div class="mini">
+            <div class="label-row">
+              <div class="mini-label">Connection Scope</div>
+              <button class="help-button" data-help-title="Connection Scope" data-help="Indicates whether the connection looks local, private, or remote. On remote targets, ping often reflects network and TLS overhead more than Redis server health.">?</button>
+            </div>
+            <div class="mini-value" id="connection-scope">-</div>
+            <div class="mini-sub" id="connection-scope-note">Latency severity adjusts for remote environments</div>
+          </div>
+        </div>
+        <div id="state-file-note" class="hero-meta"></div>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <div class="label-row">
+            <div class="card-label">Used Memory</div>
+            <button class="help-button" data-help-title="Used Memory" data-help="Logical memory used by Redis. Good: stable when the workload is stable. Bad: sustained growth without more keys, more traffic, or a clear functional reason.">?</button>
+          </div>
+          <div class="metric-value" id="used-memory">-</div>
+          <div class="metric-sub" id="used-memory-delta">Delta -</div>
+        </article>
+        <article class="card">
+          <div class="label-row">
+            <div class="card-label">RSS</div>
+            <button class="help-button" data-help-title="RSS" data-help="Actual resident memory of the Redis process. Good: relatively close to used_memory. Bad: much larger than used_memory for a long time, which usually indicates fragmentation.">?</button>
+          </div>
+          <div class="metric-value" id="used-memory-rss">-</div>
+          <div class="metric-sub" id="fragmentation">Fragmentation -</div>
+        </article>
+        <article class="card">
+          <div class="label-row">
+            <div class="card-label">Ops/sec</div>
+            <button class="help-button" data-help-title="Ops/sec" data-help="Commands processed per second. Useful for interpreting load. It becomes concerning when it rises together with latency, blocked clients, or growing memory.">?</button>
+          </div>
+          <div class="metric-value" id="ops-per-sec">-</div>
+          <div class="metric-sub" id="commands-delta">Commands delta -</div>
+        </article>
+        <article class="card">
+          <div class="label-row">
+            <div class="card-label">Clients</div>
+            <button class="help-button" data-help-title="Clients" data-help="Connected and blocked clients. blocked_clients can be normal with BLPOP or XREAD BLOCK. It becomes concerning when blocking is unexpected or rejected_connections start rising.">?</button>
+          </div>
+          <div class="metric-value" id="connected-clients">-</div>
+          <div class="metric-sub" id="blocked-clients">Blocked -</div>
+        </article>
+
+        <article class="card span-4">
+          <div class="label-row">
+            <div class="card-label">Top Alerts</div>
+            <button class="help-button" data-help-title="Top Alerts" data-help="Alerts prioritized by impact: memory, fragmentation, connections, cache efficiency, and latency. Start with the high-severity ones; low-severity alerts are usually context.">?</button>
+          </div>
+          <div id="alerts" class="alerts"></div>
+        </article>
+
+        <article class="card span-8">
+          <div class="label-row">
+            <div class="card-label">Recent Charts</div>
+            <button class="help-button" data-help-title="Recent Charts" data-help="Historical series retained by history-size. Use them to separate short-lived noise from sustained trends.">?</button>
+          </div>
+          <div class="chart-grid">
+            <div class="chart">
+              <div class="chart-head">
+                <div class="label-row">
+                  <div class="chart-title">Used Memory</div>
+                  <button class="help-button" data-help-title="Chart: Used Memory" data-help="Logical memory line. Good: flat or only slightly noisy. Bad: sustained upward movement when the dataset should not be growing.">?</button>
+                </div>
+                <span class="scope-pill" id="memory-trend-pill">warming up</span>
+              </div>
+              <svg id="chart-memory" viewBox="0 0 420 130" preserveAspectRatio="none"></svg>
+              <div class="chart-footer" id="chart-memory-footer">-</div>
+            </div>
+            <div class="chart">
+              <div class="chart-head">
+                <div class="label-row">
+                  <div class="chart-title">RSS</div>
+                  <button class="help-button" data-help-title="Chart: RSS" data-help="Actual resident memory line. If it rises without used_memory following, that usually points to fragmentation or allocator overhead.">?</button>
+                </div>
+                <span class="scope-pill">resident set</span>
+              </div>
+              <svg id="chart-rss" viewBox="0 0 420 130" preserveAspectRatio="none"></svg>
+              <div class="chart-footer" id="chart-rss-footer">-</div>
+            </div>
+            <div class="chart">
+              <div class="chart-head">
+                <div class="label-row">
+                  <div class="chart-title">Ops/sec</div>
+                  <button class="help-button" data-help-title="Chart: Ops/sec" data-help="Instantaneous load. Use it to put memory, CPU, and latency changes into context.">?</button>
+                </div>
+                <span class="scope-pill">throughput</span>
+              </div>
+              <svg id="chart-ops" viewBox="0 0 420 130" preserveAspectRatio="none"></svg>
+              <div class="chart-footer" id="chart-ops-footer">-</div>
+            </div>
+            <div class="chart">
+              <div class="chart-head">
+                <div class="label-row">
+                  <div class="chart-title">Hit Ratio</div>
+                  <button class="help-button" data-help-title="Chart: Hit Ratio" data-help="Percentage of reads served from cache hits. If Redis is used as a cache, a high ratio is usually good. If it is used for queues, locks, or sessions, this can be secondary.">?</button>
+                </div>
+                <span class="scope-pill">cache efficiency</span>
+              </div>
+              <svg id="chart-hit-ratio" viewBox="0 0 420 130" preserveAspectRatio="none"></svg>
+              <div class="chart-footer" id="chart-hit-footer">-</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card span-6">
+          <div class="label-row">
+            <div class="card-label">Traffic + Cache</div>
+            <button class="help-button" data-help-title="Traffic + Cache" data-help="Combines traffic, hit ratio, expirations, and keyspace. Example: 239,132 keys · 17,902 expiring means 239,132 total keys and 17,902 with remaining TTL. That is not bad by itself; it becomes concerning when both keys and memory only grow.">?</button>
+          </div>
+          <div class="kv-grid">
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Input / Output</div>
+                <button class="help-button" data-help-title="Input / Output" data-help="Accumulated bytes going into and out of Redis. Useful for understanding traffic volume, but not a problem indicator by themselves.">?</button>
+              </div>
+              <div class="value" id="net-traffic">-</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Hit Ratio</div>
+                <button class="help-button" data-help-title="Hit Ratio" data-help="If this instance is used as a cache, a low hit ratio can mean too many misses or overly aggressive TTLs. If it is not used as a cache, it may not matter much.">?</button>
+              </div>
+              <div class="value" id="hit-ratio">-</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Evictions / Expired</div>
+                <button class="help-button" data-help-title="Evictions / Expired" data-help="Expired removes keys because of TTL. Evictions remove keys because of maxmemory pressure. Expired is often expected; evictions can indicate tight memory conditions.">?</button>
+              </div>
+              <div class="value" id="evictions">-</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Keyspace</div>
+                <button class="help-button" data-help-title="Keyspace" data-help="dbsize is the total key count. expiring is the subset with TTL. Good: consistent with expected data volume. Bad: a continuous increase in both keys and memory without dropping back.">?</button>
+              </div>
+              <div class="value" id="keyspace-summary">-</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card span-6">
+          <div class="label-row">
+            <div class="card-label">Persistence + Health</div>
+            <button class="help-button" data-help-title="Persistence + Health" data-help="Summary of persistence, role, CPU, and uptime. It becomes concerning when you see BGSAVE/AOF errors, expensive forks, or CPU that looks too high for the current workload.">?</button>
+          </div>
+          <div class="kv-grid">
+            <div class="kv">
+              <div class="card-label">Persistence</div>
+              <div class="value" id="persistence">-</div>
+            </div>
+            <div class="kv">
+              <div class="card-label">Role / Replicas</div>
+              <div class="value" id="replication">-</div>
+            </div>
+            <div class="kv">
+              <div class="card-label">CPU</div>
+              <div class="value" id="cpu">-</div>
+            </div>
+            <div class="kv">
+              <div class="card-label">Uptime / Fork</div>
+              <div class="value" id="uptime">-</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card full">
+          <div class="label-row">
+            <div class="card-label">Databases</div>
+            <button class="help-button" data-help-title="Databases" data-help="Breakdown by DB. Useful for locating where the dataset is growing and how much of each DB has expiration configured.">?</button>
+          </div>
+          <table>
+            <thead>
+              <tr><th>DB</th><th>Keys</th><th>Expires</th><th>Avg TTL</th></tr>
+            </thead>
+            <tbody id="db-table">
+              <tr><td colspan="4">Waiting for data...</td></tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card full">
+          <div class="label-row">
+            <div class="card-label">TTL Profile + Persistent Keys</div>
+            <button class="help-button" data-help-title="TTL Profile + Persistent Keys" data-help="This section combines two things. TTL profile: uses INFO keyspace and is cheap. Persistent key groups: runs only when you click, uses a limited SCAN + PTTL sample on the configured DB, and shows estimated groups of keys without TTL. It is directional, not exhaustive.">?</button>
+          </div>
+          <div class="section-toolbar">
+            <div class="metric-sub" id="ttl-scan-status">Sampled scan runs on demand and stays cached until you refresh it.</div>
+            <button id="ttl-scan-button" class="scan-button" type="button">Scan keys without TTL</button>
+          </div>
+          <div class="kv-grid">
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">% of Keys with TTL</div>
+                <button class="help-button" data-help-title="% of Keys with TTL" data-help="Percentage of the keyspace that has expiration set. If it is low, most keys are persistent. If it is high, Redis is storing many keys that will eventually expire on their own.">?</button>
+              </div>
+              <div class="value" id="ttl-percent">-</div>
+              <div class="metric-sub" id="ttl-profile-note">-</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Weighted Avg TTL</div>
+                <button class="help-button" data-help-title="Weighted Avg TTL" data-help="Weighted average remaining TTL for keys that do expire. Persistent keys are not included. Useful for understanding whether expirations tend to be short-lived or long-lived.">?</button>
+              </div>
+              <div class="value" id="ttl-average">-</div>
+              <div class="metric-sub">Only among expiring keys</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">TTL Label</div>
+                <button class="help-button" data-help-title="TTL Label" data-help="Quick label for the keyspace TTL profile. mostly persistent means few expirations; mixed TTL blends persistent and expiring keys; mostly expiring means almost everything has TTL; short-lived TTL means the average remaining TTL is also short.">?</button>
+              </div>
+              <div class="value" id="ttl-label">-</div>
+              <div id="ttl-label-pill" class="scope-pill ttl-label-pill">awaiting data</div>
+            </div>
+            <div class="kv">
+              <div class="label-row">
+                <div class="card-label">Persistent Keys in Sample</div>
+                <button class="help-button" data-help-title="Persistent Keys in Sample" data-help="Result from the manual scan. Measures how much of the sample had no TTL. If it climbs and keys plus memory are also growing, it is worth investigating whether some key families never expire.">?</button>
+              </div>
+              <div class="value" id="persistent-sample-ratio">-</div>
+              <div class="metric-sub" id="persistent-scan-note">Run the sampled scan to identify likely persistent groups.</div>
+            </div>
+          </div>
+          <div class="section-toolbar">
+            <div class="label-row">
+              <div class="card-label">Sampled Persistent Key Groups</div>
+              <button class="help-button" data-help-title="Sampled Persistent Key Groups" data-help="Groups keys by estimated prefix using the manual sample. Useful for spotting families like user, session, job, or cache that are not expiring. If your key names do not follow a clear pattern, this view will be less useful.">?</button>
+            </div>
+          </div>
+          <div id="persistent-groups-empty" class="empty-state">Run the sampled scan to estimate which key families do not have TTL.</div>
+          <div id="persistent-groups-list" class="group-list"></div>
+        </article>
+      </section>
+    </div>
+
+    <div id="help-modal-backdrop" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-live="polite">
+      <div class="modal">
+        <div class="modal-head">
+          <div id="help-modal-title" class="modal-title"></div>
+          <button id="help-modal-close" class="modal-close" aria-label="Close help">×</button>
+        </div>
+        <div id="help-modal-body"></div>
+      </div>
+    </div>
+
+    <script>
+      const els = {
+        status: document.getElementById("status"),
+        statusText: document.getElementById("status-text"),
+        capturedAt: document.getElementById("captured-at"),
+        pingLatency: document.getElementById("ping-latency"),
+        trendDirection: document.getElementById("trend-direction"),
+        trendNotes: document.getElementById("trend-notes"),
+        connectionScope: document.getElementById("connection-scope"),
+        connectionScopeNote: document.getElementById("connection-scope-note"),
+        stateFileNote: document.getElementById("state-file-note"),
+        usedMemory: document.getElementById("used-memory"),
+        usedMemoryDelta: document.getElementById("used-memory-delta"),
+        usedMemoryRSS: document.getElementById("used-memory-rss"),
+        fragmentation: document.getElementById("fragmentation"),
+        opsPerSec: document.getElementById("ops-per-sec"),
+        commandsDelta: document.getElementById("commands-delta"),
+        connectedClients: document.getElementById("connected-clients"),
+        blockedClients: document.getElementById("blocked-clients"),
+        alerts: document.getElementById("alerts"),
+        netTraffic: document.getElementById("net-traffic"),
+        hitRatio: document.getElementById("hit-ratio"),
+        evictions: document.getElementById("evictions"),
+        keyspaceSummary: document.getElementById("keyspace-summary"),
+        persistence: document.getElementById("persistence"),
+        replication: document.getElementById("replication"),
+        cpu: document.getElementById("cpu"),
+        uptime: document.getElementById("uptime"),
+        dbTable: document.getElementById("db-table"),
+        ttlPercent: document.getElementById("ttl-percent"),
+        ttlAverage: document.getElementById("ttl-average"),
+        ttlLabel: document.getElementById("ttl-label"),
+        ttlLabelPill: document.getElementById("ttl-label-pill"),
+        ttlProfileNote: document.getElementById("ttl-profile-note"),
+        ttlScanButton: document.getElementById("ttl-scan-button"),
+        ttlScanStatus: document.getElementById("ttl-scan-status"),
+        persistentSampleRatio: document.getElementById("persistent-sample-ratio"),
+        persistentScanNote: document.getElementById("persistent-scan-note"),
+        persistentGroupsEmpty: document.getElementById("persistent-groups-empty"),
+        persistentGroupsList: document.getElementById("persistent-groups-list"),
+        memoryTrendPill: document.getElementById("memory-trend-pill"),
+        chartMemoryFooter: document.getElementById("chart-memory-footer"),
+        chartRssFooter: document.getElementById("chart-rss-footer"),
+        chartOpsFooter: document.getElementById("chart-ops-footer"),
+        chartHitFooter: document.getElementById("chart-hit-footer"),
+        helpModalBackdrop: document.getElementById("help-modal-backdrop"),
+        helpModalTitle: document.getElementById("help-modal-title"),
+        helpModalBody: document.getElementById("help-modal-body"),
+        helpModalClose: document.getElementById("help-modal-close"),
+      };
+
+      function connect() {
+        const protocol = location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${protocol}://${location.host}/ws`);
+        ws.addEventListener("open", () => setStatus("ok", "Streaming"));
+        ws.addEventListener("close", () => {
+          setStatus("error", "Disconnected, retrying...");
+          setTimeout(connect, 1000);
+        });
+        ws.addEventListener("error", () => setStatus("error", "Connection error"));
+        ws.addEventListener("message", (event) => render(JSON.parse(event.data)));
+      }
+
+      function setStatus(kind, text) {
+        els.status.className = `status ${kind}`;
+        els.statusText.textContent = text;
+      }
+
+      function render(payload) {
+        if (payload.status === "error") {
+          setStatus("error", payload.error || "Sampling failed");
+          return;
+        }
+
+        const s = payload.snapshot;
+        const d = payload.delta;
+        const t = payload.memory_trend;
+        const scope = payload.connection?.scope || "unknown";
+
+        els.capturedAt.textContent = formatTime(new Date(s.captured_at));
+        els.pingLatency.textContent = `Ping ${s.ping_latency_ms} ms`;
+        els.connectionScope.textContent = scope;
+        els.connectionScopeNote.textContent = scope === "remote"
+          ? "Remote targets de-prioritize pure ping latency"
+          : "Latency warnings are treated as stronger local signals";
+        els.stateFileNote.textContent = payload.connection?.state_file
+          ? `History persists to ${formatFileName(payload.connection.state_file)}`
+          : "";
+
+        els.trendDirection.textContent = trendLabel(t);
+        els.trendNotes.textContent = t
+          ? `${formatSignedBytes(t.net_used_memory)} in ${formatDuration(t.window_ms)} · +steps ${t.positive_steps} / -steps ${t.negative_steps}`
+          : "Waiting for enough samples";
+        els.memoryTrendPill.textContent = trendLabel(t);
+
+        els.usedMemory.textContent = formatBytes(s.used_memory);
+        els.usedMemoryDelta.textContent = d ? `Delta ${formatSignedBytes(d.used_memory)} / ${formatDuration(d.elapsed_ms)}` : "Delta -";
+        els.usedMemoryRSS.textContent = formatBytes(s.used_memory_rss);
+        els.fragmentation.textContent = `Fragmentation ${s.mem_fragmentation_ratio.toFixed(2)}x`;
+        els.opsPerSec.textContent = formatNumber(s.instantaneous_ops_per_sec);
+        els.commandsDelta.textContent = d ? `Commands delta ${signed(d.commands_processed)}` : "Commands delta -";
+        els.connectedClients.textContent = formatNumber(s.connected_clients);
+        els.blockedClients.textContent = `Blocked ${formatNumber(s.blocked_clients)} / Rejected ${formatNumber(s.rejected_connections)}`;
+        els.netTraffic.textContent = `${formatBytes(s.total_net_input_bytes)} in / ${formatBytes(s.total_net_output_bytes)} out`;
+        els.hitRatio.textContent = `${(s.hit_ratio * 100).toFixed(1)}%`;
+        els.evictions.textContent = `Evictions ${formatNumber(s.evicted_keys)} / Expired ${formatNumber(s.expired_keys)}`;
+        els.keyspaceSummary.textContent = `${formatNumber(s.dbsize)} keys · ${formatNumber(s.expiring_keys)} expiring`;
+        els.persistence.textContent = `BGSAVE ${s.rdb_last_bgsave_status || "-"} · AOF ${s.aof_enabled ? "on" : "off"}`;
+        els.replication.textContent = `${s.role || "-"} · ${formatNumber(s.connected_replicas)} replicas`;
+        els.cpu.textContent = d
+          ? `user ${signedFixed(d.cpu_user)}s · sys ${signedFixed(d.cpu_sys)}s`
+          : `user ${s.used_cpu_user.toFixed(2)}s · sys ${s.used_cpu_sys.toFixed(2)}s`;
+        els.uptime.textContent = `${formatDuration(s.uptime_seconds * 1000)} · fork ${formatNumber(s.latest_fork_usec)} us`;
+
+        renderAlerts(payload.alerts || []);
+        renderDatabases(s.databases || []);
+        renderSeries(payload.series?.points || []);
+        renderTTLProfile(s);
+        renderPersistentScan(payload.persistent_scan || null);
+      }
+
+      function initHelp() {
+        els.helpModalClose.addEventListener("click", closeHelpModal);
+        els.helpModalBackdrop.addEventListener("click", (event) => {
+          if (event.target === els.helpModalBackdrop) {
+            closeHelpModal();
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") {
+            closeHelpModal();
+          }
+        });
+
+        document.addEventListener("click", (event) => {
+          const button = event.target.closest(".help-button");
+          if (!button) {
+            return;
+          }
+
+          event.stopPropagation();
+          els.helpModalTitle.textContent = button.dataset.helpTitle || "Help";
+          els.helpModalBody.textContent = button.dataset.help || "";
+          els.helpModalBackdrop.classList.remove("hidden");
+        });
+      }
+
+      function closeHelpModal() {
+        els.helpModalBackdrop.classList.add("hidden");
+      }
+
+      function initTTLScan() {
+        els.ttlScanButton.addEventListener("click", refreshTTLScan);
+      }
+
+      function renderAlerts(alerts) {
+        els.alerts.innerHTML = "";
+        if (!alerts.length) {
+          const div = document.createElement("div");
+          div.className = "alert";
+          div.innerHTML = `
+            <div class="alert-head">
+              <div class="alert-title">No active issues</div>
+              <div class="alert-meta"><span class="severity-pill low">stable</span></div>
+            </div>
+            <div class="metric-sub">The current sample window does not indicate a meaningful Redis problem.</div>
+          `;
+          els.alerts.appendChild(div);
+          return;
+        }
+
+        alerts.slice(0, 5).forEach((alert) => {
+          const div = document.createElement("div");
+          div.className = "alert";
+          div.innerHTML = `
+            <div class="alert-head">
+              <div>
+                <div class="alert-category">${alert.category}</div>
+                <div class="alert-title">${alert.title}</div>
+              </div>
+              <div class="alert-meta">
+                <span class="severity-pill ${alert.severity}">${alert.severity}</span>
+              </div>
+            </div>
+            <div class="metric-sub">${alert.message}</div>
+          `;
+          els.alerts.appendChild(div);
+        });
+      }
+
+      function renderSeries(points) {
+        drawSeries("chart-memory", points, (p) => p.used_memory, "#c8643b");
+        drawSeries("chart-rss", points, (p) => p.used_memory_rss, "#8a5cf6");
+        drawSeries("chart-ops", points, (p) => p.ops_per_sec, "#1f7a4d");
+        drawSeries("chart-hit-ratio", points, (p) => p.hit_ratio * 100, "#2563eb");
+
+        els.chartMemoryFooter.textContent = chartFooter(points, (p) => p.used_memory, formatBytes);
+        els.chartRssFooter.textContent = chartFooter(points, (p) => p.used_memory_rss, formatBytes);
+        els.chartOpsFooter.textContent = chartFooter(points, (p) => p.ops_per_sec, formatNumber);
+        els.chartHitFooter.textContent = chartFooter(points, (p) => p.hit_ratio * 100, (v) => `${v.toFixed(1)}%`);
+      }
+
+      function drawSeries(id, points, selector, color) {
+        const svg = document.getElementById(id);
+        svg.innerHTML = "";
+        if (points.length < 2) return;
+
+        const values = points.map(selector);
+        const width = 420;
+        const height = 130;
+        const padX = 6;
+        const padY = 10;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const span = max - min || 1;
+        const innerW = width - padX * 2;
+        const innerH = height - padY * 2;
+
+        const path = values.map((value, index) => {
+          const x = padX + (innerW * index) / Math.max(values.length - 1, 1);
+          const y = padY + innerH - ((value - min) / span) * innerH;
+          return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+        }).join(" ");
+
+        const area = `${path} L ${padX + innerW} ${height - padY} L ${padX} ${height - padY} Z`;
+
+        svg.innerHTML = `
+          <path class="spark-bg" d="M ${padX} ${height - padY} H ${padX + innerW}" />
+          <path class="spark-area" d="${area}" fill="${color}" />
+          <path class="spark-line" d="${path}" stroke="${color}" />
+        `;
+      }
+
+      function chartFooter(points, selector, formatter) {
+        if (points.length < 2) return "Collecting samples";
+        const first = selector(points[0]);
+        const last = selector(points[points.length - 1]);
+        const delta = last - first;
+        return `${formatter(last)} now · ${delta >= 0 ? "+" : ""}${formatter(delta)} vs first sample`;
+      }
+
+      function renderDatabases(databases) {
+        els.dbTable.innerHTML = "";
+        if (!databases.length) {
+          els.dbTable.innerHTML = '<tr><td colspan="4">No keyspace data</td></tr>';
+          return;
+        }
+
+        databases.forEach((db) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${db.name}</td>
+            <td>${formatNumber(db.keys)}</td>
+            <td>${formatNumber(db.expires)}</td>
+            <td>${formatDuration(db.avg_ttl)}</td>
+          `;
+          els.dbTable.appendChild(tr);
+        });
+      }
+
+      function renderTTLProfile(snapshot) {
+        els.ttlPercent.textContent = `${(snapshot.ttl_percent * 100).toFixed(1)}%`;
+        els.ttlAverage.textContent = snapshot.weighted_avg_ttl > 0 ? formatDuration(snapshot.weighted_avg_ttl) : "n/a";
+        els.ttlLabel.textContent = snapshot.ttl_label || "n/a";
+        els.ttlLabelPill.textContent = snapshot.ttl_label || "awaiting data";
+        els.ttlLabelPill.className = `scope-pill ttl-label-pill ${ttlLabelClass(snapshot.ttl_label)}`;
+        els.ttlProfileNote.textContent = `${formatNumber(snapshot.expiring_keys)} of ${formatNumber(snapshot.total_keys)} keys currently have TTL`;
+      }
+
+      function renderPersistentScan(scan) {
+        els.persistentGroupsList.innerHTML = "";
+
+        if (!scan) {
+          els.persistentSampleRatio.textContent = "-";
+          els.persistentScanNote.textContent = "Run the sampled scan to identify likely persistent groups.";
+          els.ttlScanStatus.textContent = "Sampled scan runs on demand and stays cached until you refresh it.";
+          els.persistentGroupsEmpty.hidden = false;
+          return;
+        }
+
+        els.persistentSampleRatio.textContent = `${(scan.persistent_ratio_in_sample * 100).toFixed(1)}%`;
+        els.persistentScanNote.textContent = `DB ${scan.db} · ${formatNumber(scan.persistent_sampled_keys)} persistent keys in a sample of ${formatNumber(scan.sampled_keys)}`;
+        els.ttlScanStatus.textContent = `${scan.cached ? "Cached" : "Fresh"} sample from ${formatTime(new Date(scan.captured_at))} · sampled, not exhaustive`;
+
+        if (!scan.groups || !scan.groups.length) {
+          els.persistentGroupsEmpty.hidden = false;
+          els.persistentGroupsEmpty.textContent = scan.sampled_keys === 0
+            ? `DB ${scan.db} returned no keys in the sampled scan.`
+            : "No persistent key groups showed up in this sample.";
+          return;
+        }
+
+        els.persistentGroupsEmpty.hidden = true;
+        scan.groups.forEach((group) => {
+          const div = document.createElement("div");
+          div.className = "group-item";
+          const examples = Array.isArray(group.examples) && group.examples.length
+            ? `<div class="group-examples">${group.examples.map((example) => `<span class="group-example">${escapeHTML(truncateMiddle(example, 56))}</span>`).join("")}</div>`
+            : "";
+          div.innerHTML = `
+            <div>
+              <strong>${escapeHTML(group.prefix)}</strong>
+              <div class="meta">${formatNumber(group.count)} persistent sampled keys · ${(group.share * 100).toFixed(1)}% of persistent sample</div>
+              ${examples}
+            </div>
+            <div class="scope-pill">sampled prefix</div>
+          `;
+          els.persistentGroupsList.appendChild(div);
+        });
+      }
+
+      async function refreshTTLScan() {
+        if (els.ttlScanButton.disabled) {
+          return;
+        }
+
+        els.ttlScanButton.disabled = true;
+        els.ttlScanButton.textContent = "Scanning...";
+        els.ttlScanStatus.textContent = "Scanning sampled keys without TTL...";
+
+        try {
+          const response = await fetch("/api/ttl-scan", { method: "POST" });
+          const payload = await response.json();
+          if (!response.ok || payload.status === "error") {
+            throw new Error(payload.error || "TTL scan failed");
+          }
+          renderPersistentScan(payload.persistent_scan || null);
+        } catch (error) {
+          els.ttlScanStatus.textContent = error.message || "TTL scan failed";
+        } finally {
+          els.ttlScanButton.disabled = false;
+          els.ttlScanButton.textContent = "Scan keys without TTL";
+        }
+      }
+
+      function ttlLabelClass(label) {
+        switch (label) {
+          case "short-lived TTL":
+            return "short-lived";
+          case "mixed TTL":
+            return "mixed";
+          case "mostly expiring":
+            return "expiring";
+          case "mostly persistent":
+          default:
+            return "persistent";
+        }
+      }
+
+      function trendLabel(trend) {
+        if (!trend) return "warming up";
+        if (trend.sustained_growth) return "growing";
+        if (trend.net_used_memory > 0) return "slightly up";
+        if (trend.net_used_memory < 0) return "down";
+        return "flat";
+      }
+
+      function formatBytes(value) {
+        const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        let size = Math.abs(Number(value));
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+          size /= 1024;
+          unit++;
+        }
+        const rendered = `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+        return Number(value) < 0 ? `-${rendered}` : rendered;
+      }
+
+      function formatSignedBytes(value) {
+        if (!value) return "0 B";
+        return `${value > 0 ? "+" : "-"}${formatBytes(Math.abs(value))}`;
+      }
+
+      function formatNumber(value) {
+        return new Intl.NumberFormat().format(Math.round(value));
+      }
+
+      function signed(value) {
+        return value > 0 ? `+${formatNumber(value)}` : formatNumber(value);
+      }
+
+      function formatDuration(ms) {
+        if (ms < 1000) return `${ms} ms`;
+        const totalSeconds = Math.floor(ms / 1000);
+        if (totalSeconds < 60) return `${totalSeconds}s`;
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        if (minutes < 60) return `${minutes}m ${seconds}s`;
+        const hours = Math.floor(minutes / 60);
+        return `${hours}h ${minutes % 60}m`;
+      }
+
+      function formatTime(date) {
+        return date.toLocaleTimeString();
+      }
+
+      function formatFileName(path) {
+        const normalized = String(path || "");
+        const parts = normalized.split(/[\\/]/);
+        return parts[parts.length - 1] || normalized;
+      }
+
+      function signedFixed(value) {
+        return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+      }
+
+      function truncateMiddle(value, maxLength) {
+        const text = String(value);
+        if (text.length <= maxLength) return text;
+        const keep = Math.max(8, Math.floor((maxLength - 3) / 2));
+        return `${text.slice(0, keep)}...${text.slice(-keep)}`;
+      }
+
+      function escapeHTML(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      initHelp();
+      initTTLScan();
+      connect();
+    </script>
+  </body>
+</html>

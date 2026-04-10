@@ -1,0 +1,88 @@
+APP_NAME := redis-stats
+CMD_PATH := ./cmd/redis-stats
+DIST_DIR := dist
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+REDIS_URL ?= redis://localhost:6379/0
+
+.PHONY: help run-cli run-watch run-server run-audit test build fmt clean check build-release publish-release
+
+help:
+	@echo "Targets:"
+	@echo "  make run-cli        Run snapshot mode against REDIS_URL"
+	@echo "  make run-watch      Run watch mode against REDIS_URL"
+	@echo "  make run-server     Run dashboard server against REDIS_URL"
+	@echo "  make run-audit      Run exhaustive TTL audit against REDIS_URL"
+	@echo "  make fmt            Format Go code"
+	@echo "  make test           Run go test ./..."
+	@echo "  make check          Run fmt, test, and build"
+	@echo "  make build          Build the local binary"
+	@echo "  make clean          Remove local build artifacts"
+	@echo "  make build-release  Build release archives into $(DIST_DIR)/"
+	@echo "  make publish-release Publish release archives with gh for VERSION=$(VERSION)"
+	@echo ""
+	@echo "Variables:"
+	@echo "  REDIS_URL=redis://localhost:6379/0"
+	@echo "  VERSION=$(VERSION)"
+
+run-cli:
+	go run $(CMD_PATH) snapshot --redis-url "$(REDIS_URL)"
+
+run-watch:
+	go run $(CMD_PATH) watch --redis-url "$(REDIS_URL)"
+
+run-server:
+	go run $(CMD_PATH) serve --redis-url "$(REDIS_URL)"
+
+run-audit:
+	go run $(CMD_PATH) ttl-audit --redis-url "$(REDIS_URL)"
+
+fmt:
+	gofmt -w ./cmd ./internal
+
+test:
+	go test ./...
+
+check: fmt test build
+
+build:
+	go build -o $(APP_NAME) ./cmd/redis-stats
+
+clean:
+	rm -rf $(DIST_DIR)
+	rm -f $(APP_NAME)
+	rm -f $(APP_NAME).exe
+
+build-release: clean
+	mkdir -p $(DIST_DIR)
+	@set -eu; \
+	for target in "darwin amd64" "darwin arm64" "linux amd64" "linux arm64"; do \
+		set -- $$target; \
+		os=$$1; arch=$$2; \
+		name="$(APP_NAME)_$(VERSION)_$${os}_$${arch}"; \
+		outdir="$(DIST_DIR)/$$name"; \
+		mkdir -p "$$outdir"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -o "$$outdir/$(APP_NAME)" ./cmd/redis-stats; \
+		cp README.md LICENSE "$$outdir/"; \
+		tar -C "$(DIST_DIR)" -czf "$(DIST_DIR)/$$name.tar.gz" "$$name"; \
+		rm -rf "$$outdir"; \
+	done
+	@set -eu; \
+	for target in "windows amd64"; do \
+		set -- $$target; \
+		os=$$1; arch=$$2; \
+		name="$(APP_NAME)_$(VERSION)_$${os}_$${arch}"; \
+		outdir="$(DIST_DIR)/$$name"; \
+		mkdir -p "$$outdir"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -o "$$outdir/$(APP_NAME).exe" ./cmd/redis-stats; \
+		cp README.md LICENSE "$$outdir/"; \
+		(cd "$(DIST_DIR)" && zip -qr "$$name.zip" "$$name"); \
+		rm -rf "$$outdir"; \
+	done
+	@echo "Release artifacts created in $(DIST_DIR)/"
+
+publish-release: build-release
+	@if ! command -v gh >/dev/null 2>&1; then \
+		echo "gh CLI is required for publish-release"; \
+		exit 1; \
+	fi
+	gh release create "$(VERSION)" $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.zip --generate-notes

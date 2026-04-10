@@ -4,6 +4,10 @@ Go CLI for inspecting a Redis instance and surfacing early operational signals, 
 
 The project also includes an embedded web dashboard with live WebSocket updates.
 
+[Redis Stats dashboard](assets/screenshot.png)
+
+Live dashboard view with memory, alerts, charts, and TTL diagnostics.
+
 ## What It Shows
 
 - Memory usage and RSS to spot growth and fragmentation.
@@ -62,6 +66,44 @@ Exhaustively scans the configured DB, identifies keys without TTL, and groups th
 go run ./cmd/redis-stats ttl-audit
 go run ./cmd/redis-stats ttl-audit --redis-url redis://localhost:6379/0
 ```
+
+## Running from a Release Artifact
+
+Each GitHub release includes prebuilt binaries for:
+
+- macOS Intel: `darwin_amd64`
+- macOS Apple Silicon: `darwin_arm64`
+- Linux x86_64: `linux_amd64`
+- Linux ARM64: `linux_arm64`
+- Windows x86_64: `windows_amd64`
+
+After downloading the archive for your platform, extract it and run the binary directly.
+
+macOS / Linux:
+
+```bash
+tar -xzf redis-stats_<VERSION>_<os>_<arch>.tar.gz
+cd redis-stats_<VERSION>_<os>_<arch>
+
+./redis-stats snapshot --redis-url redis://localhost:6379/0
+./redis-stats watch --redis-url redis://localhost:6379/0
+./redis-stats serve --redis-url redis://localhost:6379/0
+./redis-stats ttl-audit --redis-url redis://localhost:6379/0
+```
+
+Windows PowerShell:
+
+```powershell
+Expand-Archive .\redis-stats_<VERSION>_windows_amd64.zip
+cd .\redis-stats_<VERSION>_windows_amd64
+
+.\redis-stats.exe snapshot --redis-url redis://localhost:6379/0
+.\redis-stats.exe watch --redis-url redis://localhost:6379/0
+.\redis-stats.exe serve --redis-url redis://localhost:6379/0
+.\redis-stats.exe ttl-audit --redis-url redis://localhost:6379/0
+```
+
+By default, `serve` listens on `127.0.0.1:8080`.
 
 ## Configuration
 
@@ -145,10 +187,13 @@ make run-audit
 make test
 make build
 make build-release
+make release-notes VERSION=v0.1.0
 make publish-release VERSION=v0.1.0
 ```
 
 `publish-release` requires the GitHub CLI (`gh`) to be installed and authenticated.
+By default it renders release notes from `.github/RELEASE_TEMPLATE.md`.
+You can override that with `RELEASE_NOTES_FILE=/path/to/release-notes.md`.
 
 To keep the dashboard running longer and persist history:
 

@@ -2,9 +2,11 @@ APP_NAME := redis-stats
 CMD_PATH := ./cmd/redis-stats
 DIST_DIR := dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-REDIS_URL ?= redis://localhost:6379/0
+RELEASE_NOTES_FILE ?=
+RELEASE_TEMPLATE := .github/RELEASE_TEMPLATE.md
+GENERATED_RELEASE_NOTES := $(DIST_DIR)/RELEASE_NOTES_$(VERSION).md
 
-.PHONY: help run-cli run-watch run-server run-audit test build fmt clean check build-release publish-release
+.PHONY: help run-cli run-watch run-server run-audit test build fmt clean check build-release release-notes publish-release
 
 help:
 	@echo "Targets:"
@@ -18,23 +20,24 @@ help:
 	@echo "  make build          Build the local binary"
 	@echo "  make clean          Remove local build artifacts"
 	@echo "  make build-release  Build release archives into $(DIST_DIR)/"
+	@echo "  make release-notes  Render release notes from $(RELEASE_TEMPLATE)"
 	@echo "  make publish-release Publish release archives with gh for VERSION=$(VERSION)"
 	@echo ""
 	@echo "Variables:"
-	@echo "  REDIS_URL=redis://localhost:6379/0"
 	@echo "  VERSION=$(VERSION)"
+	@echo "  RELEASE_NOTES_FILE=/path/to/release-notes.md"
 
 run-cli:
-	go run $(CMD_PATH) snapshot --redis-url "$(REDIS_URL)"
+	go run $(CMD_PATH) snapshot
 
 run-watch:
-	go run $(CMD_PATH) watch --redis-url "$(REDIS_URL)"
+	go run $(CMD_PATH) watch
 
 run-server:
-	go run $(CMD_PATH) serve --redis-url "$(REDIS_URL)"
+	go run $(CMD_PATH) serve
 
 run-audit:
-	go run $(CMD_PATH) ttl-audit --redis-url "$(REDIS_URL)"
+	go run $(CMD_PATH) ttl-audit
 
 fmt:
 	gofmt -w ./cmd ./internal
@@ -80,9 +83,18 @@ build-release: clean
 	done
 	@echo "Release artifacts created in $(DIST_DIR)/"
 
-publish-release: build-release
+release-notes:
+	mkdir -p $(DIST_DIR)
+	sed 's/{{VERSION}}/$(VERSION)/g' "$(RELEASE_TEMPLATE)" > "$(GENERATED_RELEASE_NOTES)"
+	@echo "Rendered release notes: $(GENERATED_RELEASE_NOTES)"
+
+publish-release: build-release release-notes
 	@if ! command -v gh >/dev/null 2>&1; then \
 		echo "gh CLI is required for publish-release"; \
 		exit 1; \
 	fi
-	gh release create "$(VERSION)" $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.zip --generate-notes
+	@if [ -n "$(RELEASE_NOTES_FILE)" ]; then \
+		gh release create "$(VERSION)" $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.zip --notes-file "$(RELEASE_NOTES_FILE)"; \
+	else \
+		gh release create "$(VERSION)" $(DIST_DIR)/*.tar.gz $(DIST_DIR)/*.zip --notes-file "$(GENERATED_RELEASE_NOTES)"; \
+	fi
